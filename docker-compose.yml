@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: resume_editor
+      POSTGRES_PASSWORD: resume_editor
+      POSTGRES_DB: resume_editor
+    ports:
+      - "5432:5432"
+    volumes:
+      - resume_editor_pgdata:/var/lib/postgresql/data
+
+volumes:
+  resume_editor_pgdata:
