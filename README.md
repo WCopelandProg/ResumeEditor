@@ -1,14 +1,14 @@
-# Resumo — Resume Editor & AI Coach
+# Resumo: Resume Editor & AI Coach
 
-A web app for editing resume content and formatting, reviewing AI suggestions, and exporting selectable-text PDFs.
+Edit your resume, adjust its formatting, review AI suggestions, and export a PDF with selectable text.
 
 **Stack:** Next.js, TypeScript, PostgreSQL, Prisma, Auth.js, Zod, and React PDF.
 
-## Project highlights
+## What it does
 
-- Separates content from presentation so template changes preserve the underlying information.
-- Validates structured AI suggestions and lets users review changes before applying them.
-- Parses uploaded PDFs and generates PDFs with a text layer rather than screenshots.
+- Keeps resume content separate from formatting, so changing templates leaves your information intact.
+- Checks AI suggestions against a schema and shows them to you before you apply changes.
+- Reads uploaded PDFs and exports PDFs with a searchable, selectable text layer.
 - Includes tests for parsing, rendering, AI output validation, and resume ownership boundaries.
 
 **Start here:** [Quick start](#quick-start) · [Architecture](#architecture) · [Testing](#testing) · [Limitations](#known-limitations--whats-next)
@@ -52,7 +52,7 @@ uploading anything.
 
 The AI Resume Coach needs a model API key. Without one, every AI-powered
 action (analyze, rewrite, job match, smart questions) fails with a clear
-"not configured yet" message — the rest of the app works fully without it.
+"not configured yet" message; the rest of the app works fully without it.
 
 ```bash
 AI_PROVIDER="anthropic"        # or "openai"
@@ -82,12 +82,7 @@ Zustand for editor state, `@dnd-kit` for drag-and-drop, `pdfjs-dist` for
 parsing, `@react-pdf/renderer` for generation, Zod everywhere input/AI output
 crosses a trust boundary.
 
-**Why this stack:** it's the combination that lets one person build a
-genuinely complete product surface (auth, DB, editor, AI, PDF I/O) in one
-codebase without gluing together a separate backend service, while every
-individual piece (Prisma, NextAuth, Zod, Zustand) is a boring, well-understood
-choice — the interesting engineering here is in the resume/AI/PDF domain
-logic, not in inventing new plumbing.
+**Why this stack:** It keeps auth, the database, the editor, AI features, and PDF handling in one codebase without a separate backend service. Familiar tools like Prisma, NextAuth, Zod, and Zustand leave more room to focus on the resume editor, AI suggestions, and PDF handling.
 
 **Content vs. presentation are separate data models.** A resume's content
 (`Resume.content`) and its formatting (`ResumeStyle`) are stored and edited
@@ -96,7 +91,7 @@ content, and vice versa. The same `ResumeStyle` + template "skin" config
 (`src/lib/pdf/templateSkins.ts`) drives both the live in-browser preview and
 the exported PDF, so what you see while editing is what you get on export.
 
-**The AI layer is provider-agnostic by construction.** Application code talks
+**AI providers can be swapped.** Application code talks
 only to the `AiProvider` interface (`src/lib/ai/provider.ts`); Anthropic and
 OpenAI are two interchangeable implementations behind it. Every AI response
 is parsed and validated against a Zod schema before it touches the database
@@ -126,15 +121,7 @@ Entry   { id, order, organization?, title?, location?, startDate?, endDate?,
 Bullet  { id, order, text }
 ```
 
-This mirrors how real document editors persist rich, constantly-reshaped
-trees (Notion, Google Docs) — a fully normalized `bullets` table would mean a
-cascade of tiny CRUD endpoints for something that's always read/written as
-one document. Every node carries a stable, client-minted id (`sec_…`,
-`ent_…`, `blt_…`) that survives edits and reorders, which is what lets an AI
-suggestion or a version snapshot address "this exact bullet" reliably.
-Everything genuinely relational — users, resumes, versions, suggestions, job
-descriptions, analysis runs, uploaded files, and style — stays in normal
-Postgres tables (`prisma/schema.prisma`).
+The app reads and saves resume content as one document. Keeping it in JSON avoids a separate set of CRUD endpoints for every bullet. Each node has a stable, client-generated id (`sec_…`, `ent_…`, `blt_…`) that stays the same through edits and reordering. AI suggestions and version snapshots can use those ids to find a specific bullet. Users, resumes, versions, suggestions, job descriptions, analysis runs, uploaded files, and styles still use relational Postgres tables (`prisma/schema.prisma`).
 
 Formatting/style is a separate model (`ResumeStyle`) with real per-field
 columns and safeguarded bounds (`STYLE_BOUNDS`), applied through a template
@@ -158,17 +145,15 @@ technologies. When a bullet would be stronger with a number that isn't
 already in the text, the model is instructed to leave `suggestedText` null
 and ask a specific clarifying question instead
 (`AiSuggestionSchema` enforces "must have one or the other" at the schema
-level, not just via prompt wording) — see "Smart Questions" in the AI Coach
+level, not just via prompt wording); see "Smart Questions" in the AI Coach
 sidebar. Accepting, rejecting, or editing a suggestion never happens
 silently: the user always sees the proposed text before it lands.
 
-Job-match scores are explicitly labeled `scoreIsInternalEstimate: true` end
-to end (schema, API, UI) — never presented as a real employer ATS result.
+Job-match scores are explicitly labeled `scoreIsInternalEstimate: true` throughout the schema, API, and UI. They are estimates from this app, with no access to an employer’s ATS results.
 
 ## PDF pipeline
 
-Four distinct stages, matching the architectural requirement to keep the
-original file, parsed content, style, and rendered output separate:
+The pipeline keeps the original file, parsed content, style, and rendered output separate:
 
 1. **Original PDF** → stored via a pluggable `StorageProvider`
    (`src/lib/storage`; local disk in dev, S3/R2-compatible in production —
@@ -176,27 +161,22 @@ original file, parsed content, style, and rendered output separate:
 2. **Parsing** (`src/lib/pdf/extract.ts` + `segment.ts`) → a heuristic layout
    parser: pdfjs-dist gives positioned text + link annotations; line
    clustering, font-size tiers, bullet-glyph detection, and a small resume
-   vocabulary turn that into sections/entries/bullets. It's deliberately a
-   strong heuristic pass, not an ML model — real resumes vary too much for
-   perfect extraction to be a realistic goal, so the product design leans on
-   the visual editor for the user to fix anything it gets wrong, rather than
-   promising perfection.
-   - **Runs as a real child process** (`scripts/pdf-extract-worker.mjs`),
+   vocabulary turn that into sections/entries/bullets. The parser uses heuristics, so it can miss details in an unfamiliar layout. You can correct the result in the visual editor.
+   - **Runs in a separate child process** (`scripts/pdf-extract-worker.mjs`),
      not an in-process import. pdfjs-dist dynamically imports its own worker
      submodule at runtime; both Turbopack and webpack mangle that import once
      pdfjs is pulled into a Next.js server bundle. Running it unbundled in a
-     plain `node` process sidesteps that entirely, with the side benefit that
+     plain `node` process avoids that bundling issue and means
      a pathological PDF can't hang or crash the main server.
    - A PDF with no extractable text (scanned/image-only) is detected
      (`NO_TEXT_LAYER`) and reported distinctly rather than silently producing
-     an empty resume — see "OCR" below.
+     an empty resume; see "OCR" below.
 3. **Style** → `ResumeStyle`, edited independently via the Formatting panel.
-4. **Rendering** (`src/lib/pdf/render.ts` + `ResumeDocument.tsx`) → genuine
-   PDF generation via `@react-pdf/renderer`: real text objects (selectable,
-   ATS-readable), real link annotations, standard 14 PDF fonts (no font
+4. **Rendering** (`src/lib/pdf/render.ts` + `ResumeDocument.tsx`) → PDF generation via `@react-pdf/renderer`: text objects (selectable,
+   ATS-readable), link annotations, standard 14 PDF fonts (no font
    embedding needed, renders identically everywhere). One parametrized
    document component plus a per-template "skin" config produces all 6
-   visually distinct templates, rather than six near-duplicate layouts.
+   visually distinct templates, without maintaining six copies of the layout.
    Pagination avoids orphaned headings and split entries by grouping each
    section's heading with its first entry, and each entry's header with its
    bullets, in non-splitting blocks.
@@ -212,22 +192,22 @@ CRUD/authorization/suggestion-application, run against a real (test)
 Postgres database rather than mocks wherever the thing being tested *is* the
 persistence/authorization logic:
 
-- `test/pdf/parseResume.test.ts` — parses a real, in-memory-generated PDF
+- `test/pdf/parseResume.test.ts`; parses a real, in-memory-generated PDF
   and asserts on the resulting structured sections/entries/bullets/dates,
   plus the scanned-PDF (`NO_TEXT_LAYER`) path.
-- `test/pdf/render.test.ts` — renders all 6 templates to real PDF bytes and
+- `test/pdf/render.test.ts`; renders all 6 templates to real PDF bytes and
   round-trips one back through the parser to confirm the exported text is
   genuinely selectable/extractable (not a screenshot).
-- `test/ai/structured.test.ts` — the JSON-extraction/validation/retry logic
+- `test/ai/structured.test.ts`; the JSON-extraction/validation/retry logic
   against a fake `AiProvider`, including the "still garbage after retry"
   failure path.
-- `test/ai/coach.test.ts` — prompt construction (resume content and stable
+- `test/ai/coach.test.ts`; prompt construction (resume content and stable
   ids actually reach the model) and rejects a fabricated-metric response
   that skips both `suggestedText` and `question`.
-- `test/api/resumeCrud.test.ts` — create/list/read/update/delete, ownership
+- `test/api/resumeCrud.test.ts`; create/list/read/update/delete, ownership
   enforcement (a second user gets 404, not 403, and can't mutate), and that
   accepting/rejecting a suggestion does (or doesn't) mutate the right bullet.
-- `test/api/upload.test.ts` — the real upload route end to end: a generated
+- `test/api/upload.test.ts`; the real upload route end to end: a generated
   PDF in, a structured resume out, plus the non-PDF and scanned-PDF
   rejection paths.
 
@@ -250,18 +230,15 @@ test/                                                     Vitest suite (mirrors 
 
 ## Known limitations & what's next
 
-Built through Phase 2 of the priority order (upload → parse → edit → AI
-feedback → accept/reject → export → persistence, then auth, dashboard,
-templates, scoring, ATS, job targeting, version history) rather than
-spreading effort across every possible feature:
+The app covers Phase 2: uploading, parsing, editing, AI feedback, reviewing suggestions, exporting, and saving resumes. It also includes auth, a dashboard, templates, scoring, ATS checks, job targeting, and version history. Here’s what remains:
 
-- **OCR for scanned PDFs is architected for but not implemented.** A
+- **OCR for scanned PDFs is planned and has an integration point, but isn’t implemented.** A
   scanned/image-only PDF is detected and reported clearly instead of
   silently producing an empty resume; wiring in an OCR provider would slot
   into `parseResumePdf`'s `NO_TEXT_LAYER` branch without touching anything
   downstream.
 - **Rich per-character formatting (bold/italic mid-sentence) isn't
-  supported** — the structured model intentionally represents content as
+  supported**; the structured model intentionally represents content as
   plain strings with template-driven styling (job titles are always bold,
   etc.), which keeps AI suggestions, PDF export, and the editor all working
   from the same simple text rather than needing a rich-text/AST layer.
@@ -272,9 +249,9 @@ spreading effort across every possible feature:
   letting users assign arbitrary sections to a column.
 - **Cover letters, LinkedIn import, sharing links, and the other Phase-3
   ideas** are intentionally not built, but nothing in the data model blocks
-  them — e.g. a share link is a new route reading the same `Resume`/`
+  them; e.g. a share link is a new route reading the same `Resume`/`
   ResumeVersion` rows behind a token instead of a session.
-- **Dev-only warnings you'll see and can ignore:** `next dev`'s Turbopack
+- **Development warnings:** `next dev`'s Turbopack
   logs a "middleware" → "proxy" naming deprecation notice, and Prisma logs a
   `package.json#prisma` config deprecation notice (both still fully
   functional in the versions pinned here).
