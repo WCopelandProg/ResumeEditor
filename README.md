@@ -84,7 +84,7 @@ crosses a trust boundary.
 
 **Why this stack:** It keeps auth, the database, the editor, AI features, and PDF handling in one codebase without a separate backend service. Familiar tools like Prisma, NextAuth, Zod, and Zustand leave more room to focus on the resume editor, AI suggestions, and PDF handling.
 
-**Content vs. presentation are separate data models.** A resume's content
+**Content and formatting are stored separately.** A resume's content
 (`Resume.content`) and its formatting (`ResumeStyle`) are stored and edited
 independently, so switching templates or adjusting spacing never touches
 content, and vice versa. The same `ResumeStyle` + template "skin" config
@@ -99,10 +99,8 @@ or UI (`src/lib/ai/structured.ts`), with one automatic retry (feeding the
 validation error back to the model) before failing safely. See
 [AI suggestion model](#ai-suggestion-model) for the anti-fabrication design.
 
-**Authorization** is enforced once, centrally: every resume-scoped API route
-calls `requireOwnedResume(id, userId)` (`src/lib/api/auth.ts`), which 404s
-(not 403s) on a resume that exists but isn't yours, so ownership can't be
-probed by id.
+**Authorization** uses one shared check: every resume-scoped API route
+calls `requireOwnedResume(id, userId)` (`src/lib/api/auth.ts`), which returns 404 instead of 403 when someone requests another user’s resume. That keeps the response from revealing whether the id exists.
 
 ## Resume data model
 
@@ -123,8 +121,8 @@ Bullet  { id, order, text }
 
 The app reads and saves resume content as one document. Keeping it in JSON avoids a separate set of CRUD endpoints for every bullet. Each node has a stable, client-generated id (`sec_…`, `ent_…`, `blt_…`) that stays the same through edits and reordering. AI suggestions and version snapshots can use those ids to find a specific bullet. Users, resumes, versions, suggestions, job descriptions, analysis runs, uploaded files, and styles still use relational Postgres tables (`prisma/schema.prisma`).
 
-Formatting/style is a separate model (`ResumeStyle`) with real per-field
-columns and safeguarded bounds (`STYLE_BOUNDS`), applied through a template
+Formatting/style is a separate model (`ResumeStyle`) with separate
+columns for each field and limits on allowed values (`STYLE_BOUNDS`), applied through a template
 "skin" (`templateSkins.ts`) so switching among the 6 templates never touches
 content.
 
@@ -139,15 +137,14 @@ Suggestion {
 }
 ```
 
-**The AI must never invent a fact.** Every prompt (`src/lib/ai/coach.ts`)
-repeats this explicitly: no fabricated metrics, employers, dates, or
+**AI suggestions must stick to the facts.** Every prompt (`src/lib/ai/coach.ts`)
+instructs the model to avoid making up metrics, employers, dates, or
 technologies. When a bullet would be stronger with a number that isn't
 already in the text, the model is instructed to leave `suggestedText` null
 and ask a specific clarifying question instead
 (`AiSuggestionSchema` enforces "must have one or the other" at the schema
 level, not just via prompt wording); see "Smart Questions" in the AI Coach
-sidebar. Accepting, rejecting, or editing a suggestion never happens
-silently: the user always sees the proposed text before it lands.
+sidebar. You always see the proposed text before choosing to accept, reject, or edit a suggestion.
 
 Job-match scores are explicitly labeled `scoreIsInternalEstimate: true` throughout the schema, API, and UI. They are estimates from this app, with no access to an employer’s ATS results.
 
@@ -192,22 +189,22 @@ CRUD/authorization/suggestion-application, run against a real (test)
 Postgres database rather than mocks wherever the thing being tested *is* the
 persistence/authorization logic:
 
-- `test/pdf/parseResume.test.ts`; parses a real, in-memory-generated PDF
+- `test/pdf/parseResume.test.ts`: parses a real, in-memory-generated PDF
   and asserts on the resulting structured sections/entries/bullets/dates,
   plus the scanned-PDF (`NO_TEXT_LAYER`) path.
-- `test/pdf/render.test.ts`; renders all 6 templates to real PDF bytes and
+- `test/pdf/render.test.ts`: renders all 6 templates to real PDF bytes and
   round-trips one back through the parser to confirm the exported text is
-  genuinely selectable/extractable (not a screenshot).
-- `test/ai/structured.test.ts`; the JSON-extraction/validation/retry logic
+  selectable and extractable.
+- `test/ai/structured.test.ts`: the JSON-extraction/validation/retry logic
   against a fake `AiProvider`, including the "still garbage after retry"
   failure path.
-- `test/ai/coach.test.ts`; prompt construction (resume content and stable
-  ids actually reach the model) and rejects a fabricated-metric response
+- `test/ai/coach.test.ts`: prompt construction (resume content and stable
+  ids reach the model) and rejects a fabricated-metric response
   that skips both `suggestedText` and `question`.
-- `test/api/resumeCrud.test.ts`; create/list/read/update/delete, ownership
+- `test/api/resumeCrud.test.ts`: create/list/read/update/delete, ownership
   enforcement (a second user gets 404, not 403, and can't mutate), and that
   accepting/rejecting a suggestion does (or doesn't) mutate the right bullet.
-- `test/api/upload.test.ts`; the real upload route end to end: a generated
+- `test/api/upload.test.ts`: the upload route from start to finish: a generated
   PDF in, a structured resume out, plus the non-PDF and scanned-PDF
   rejection paths.
 
