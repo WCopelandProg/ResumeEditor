@@ -1,14 +1,17 @@
-# Resumo — AI-Powered Resume Editor & Coach
+# Resumo — Resume Editor & AI Coach
 
-Upload a resume, edit it visually, get specific AI feedback grounded in your
-actual content, and export a polished, ATS-ready, selectable-text PDF.
+A web app for editing resume content and formatting, reviewing AI suggestions, and exporting selectable-text PDFs.
 
-This is a full production-shaped implementation, not a prototype: real
-authentication and per-user authorization, a real PDF parsing pipeline, real
-PDF generation (not a screenshot), a provider-agnostic AI layer with
-schema-validated structured output, and a test suite covering the parts most
-likely to silently break (the parser, AI output validation, suggestion
-application, auth boundaries, upload).
+**Stack:** Next.js, TypeScript, PostgreSQL, Prisma, Auth.js, Zod, and React PDF.
+
+## Project highlights
+
+- Separates content from presentation so template changes preserve the underlying information.
+- Validates structured AI suggestions and lets users review changes before applying them.
+- Parses uploaded PDFs and generates PDFs with a text layer rather than screenshots.
+- Includes tests for parsing, rendering, AI output validation, and resume ownership boundaries.
+
+**Start here:** [Quick start](#quick-start) · [Architecture](#architecture) · [Testing](#testing) · [Limitations](#known-limitations--whats-next)
 
 ## Contents
 
@@ -275,3 +278,4 @@ spreading effort across every possible feature:
   logs a "middleware" → "proxy" naming deprecation notice, and Prisma logs a
   `package.json#prisma` config deprecation notice (both still fully
   functional in the versions pinned here).
+  
